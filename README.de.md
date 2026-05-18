@@ -2,6 +2,8 @@
 
 # hmip-velux-plugin
 
+📦 **[hmip-velux-plugin-1.0.0.tar.gz herunterladen](https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200/releases/latest/download/hmip-velux-plugin-1.0.0.tar.gz)** — Installation in HCUweb über *Entwicklermodus → Plugins → Aus Datei installieren*.
+
 Homematic IP HCU Plugin, das Velux-Geräte (Rollläden, Markisen, Fenster) über
 ein **KLF-200 Gateway** in die Homematic IP App bringt.
 
