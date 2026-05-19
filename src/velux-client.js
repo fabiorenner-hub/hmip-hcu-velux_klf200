@@ -213,6 +213,32 @@ class VeluxClient extends EventEmitter {
         // Track sessions we started via setShutterLevel/stopMovement so we
         // can match GW_COMMAND_RUN_STATUS_NTF back to a specific node.
         this._sessions = new Map(); // sessionID -> { nodeId, target, deadline }
+        // Promise tail used to serialize velux.sendCommand calls. The
+        // upstream lib keys its CFM-pending map by API name, so two
+        // simultaneous GW_COMMAND_SEND_REQs collide and one of them is
+        // falsely reported as "timeout GW_COMMAND_SEND_CFM" five seconds
+        // later — even though the gateway accepted both. Chaining sends
+        // through this tail keeps at most one CFM in flight at a time.
+        this._cmdChain = Promise.resolve();
+    }
+
+    /**
+     * Send a single GW_*_REQ to the KLF, serialized against any other
+     * outstanding sendCommand. Returns whatever velux.sendCommand resolves
+     * with (typically the CFM payload).
+     */
+    _sendCommandSerial(payload) {
+        const prev = this._cmdChain;
+        const next = prev
+            .catch(() => {
+                /* don't let earlier failures cancel future commands */
+            })
+            .then(() => velux.sendCommand(payload));
+        // Keep the chain alive even if this call rejects; future callers
+        // attach with .catch(() => {}) so a single bad command can't block
+        // the queue forever.
+        this._cmdChain = next.catch(() => {});
+        return next;
     }
 
     async start() {
@@ -224,6 +250,7 @@ class VeluxClient extends EventEmitter {
         this._stopping = true;
         this._clearTimers();
         this._readyEmitted = false;
+        this._cmdChain = Promise.resolve();
         try {
             await velux.end();
         } catch (_) {
@@ -250,7 +277,7 @@ class VeluxClient extends EventEmitter {
             this._attachListeners();
 
             // Subscribe to status monitor so position updates arrive unsolicited.
-            await velux.sendCommand({ api: API.GW_HOUSE_STATUS_MONITOR_ENABLE_REQ });
+            await this._sendCommandSerial({ api: API.GW_HOUSE_STATUS_MONITOR_ENABLE_REQ });
             await this.refreshNodes();
             this._schedulePoll();
 
@@ -319,8 +346,7 @@ class VeluxClient extends EventEmitter {
             const intervalMs = Math.max(1, keepaliveMin) * 60 * 1000;
             logger.debug(`KLF-200 keep-alive every ${keepaliveMin} min`);
             this._keepaliveTimer = setInterval(() => {
-                velux
-                    .sendCommand({ api: API.GW_GET_VERSION_REQ })
+                this._sendCommandSerial({ api: API.GW_GET_VERSION_REQ })
                     .then(() => {
                         this._keepaliveFailures = 0;
                     })
@@ -443,7 +469,7 @@ class VeluxClient extends EventEmitter {
             return;
         }
         try {
-            await velux.sendCommand({ api: API.GW_REBOOT_REQ });
+            await this._sendCommandSerial({ api: API.GW_REBOOT_REQ });
             logger.info('KLF-200 GW_REBOOT_REQ acknowledged; gateway is rebooting.');
         } catch (err) {
             logger.warn(
@@ -456,6 +482,7 @@ class VeluxClient extends EventEmitter {
         this.connected = false;
         this._readyEmitted = false;
         this._sessions.clear();
+        this._cmdChain = Promise.resolve();
         try {
             await velux.end();
         } catch (_) {
@@ -470,6 +497,9 @@ class VeluxClient extends EventEmitter {
         this.connected = false;
         this._readyEmitted = false;
         this._sessions.clear();
+        // Reset the serial command chain so a never-resolving send from
+        // the dropped session can't keep the queue blocked.
+        this._cmdChain = Promise.resolve();
         try {
             await velux.end();
         } catch (_) {
@@ -527,7 +557,7 @@ class VeluxClient extends EventEmitter {
 
     async refreshNodes() {
         logger.debug('Requesting all node information from KLF-200');
-        await velux.sendCommand({ api: API.GW_GET_ALL_NODES_INFORMATION_REQ });
+        await this._sendCommandSerial({ api: API.GW_GET_ALL_NODES_INFORMATION_REQ });
     }
 
     /**
@@ -545,7 +575,7 @@ class VeluxClient extends EventEmitter {
         const ids = Array.isArray(nodeIds) ? nodeIds : [nodeIds];
         if (ids.length === 0) return;
         try {
-            await velux.sendCommand({
+            await this._sendCommandSerial({
                 api: API.GW_STATUS_REQUEST_REQ,
                 indexArrayCount: ids.length,
                 indexArray: ids,
@@ -800,7 +830,7 @@ class VeluxClient extends EventEmitter {
 
         let cfm;
         try {
-            cfm = await velux.sendCommand({
+            cfm = await this._sendCommandSerial({
                 api: API.GW_COMMAND_SEND_REQ,
                 commandOriginator: 1,
                 priorityLevel: 3,
@@ -812,10 +842,35 @@ class VeluxClient extends EventEmitter {
                 lockTime: 0,
             });
         } catch (err) {
-            if (err && String(err.message || '').includes('timeout')) {
+            const isTimeout = err && /timeout GW_/i.test(String(err.message || ''));
+            if (!isTimeout) {
+                // Real transport / IO failure: bounce the session and
+                // surface the error to the HCU so the user sees it.
                 this._forceReconnect();
+                throw err;
             }
-            throw err;
+            // CFM timeout typically means the lib's pending-map collided
+            // with another concurrent send; the gateway accepted the
+            // command and we'll see the result via RUN_STATUS / live poll.
+            // Treat as success from the HCU's perspective so the app
+            // doesn't show a spurious failure for a movement that did
+            // happen.
+            logger.warn(
+                `Velux node ${nodeId} CFM timeout; treating as accepted, RUN_STATUS will reconcile.`,
+            );
+            // Optimistic update so the HMIP UI reflects the target immediately.
+            const entry = this.nodes.get(nodeId);
+            if (entry) {
+                entry.level = clamped;
+                entry._pendingTarget = clamped;
+                entry._pendingDeadline = Date.now() + PENDING_WINDOW_MS;
+                this.emit('positionChanged', entry);
+            }
+            // Trigger a live poll so the UI converges to the real state.
+            setTimeout(() => {
+                this.requestLiveStatus([nodeId]).catch(() => {});
+            }, 4000);
+            return;
         }
 
         // Track the session so _onCommandRunStatus can match the NTF back.
@@ -858,7 +913,7 @@ class VeluxClient extends EventEmitter {
     async stopMovement(nodeId) {
         if (!this.connected) throw new Error('KLF-200 not connected');
         logger.info(`Velux node ${nodeId} -> STOP`);
-        await velux.sendCommand({
+        await this._sendCommandSerial({
             api: API.GW_COMMAND_SEND_REQ,
             commandOriginator: 1,
             priorityLevel: 3,

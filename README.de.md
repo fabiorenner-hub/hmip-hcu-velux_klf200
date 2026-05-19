@@ -1,4 +1,4 @@
-﻿> [🇬🇧 English](README.md) | 🇩🇪 Deutsch
+> [🇬🇧 English](README.md) | 🇩🇪 Deutsch
 
 <p align="center">
   <img src="icon.svg" alt="hmip-velux-plugin Symbolbild" width="128" height="128"/>
@@ -6,7 +6,7 @@
 
 # hmip-velux-plugin
 
-📦 **[hmip-velux-plugin-1.1.1.tar.gz herunterladen](https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200/releases/latest/download/hmip-velux-plugin-1.1.1.tar.gz)** — Installation in HCUweb über *Entwicklermodus → Plugins → Aus Datei installieren*.
+📦 **[hmip-velux-plugin-1.1.2.tar.gz herunterladen](https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200/releases/latest/download/hmip-velux-plugin-1.1.2.tar.gz)** — Installation in HCUweb über *Entwicklermodus → Plugins → Aus Datei installieren*.
 
 GitHub: <https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200>
 

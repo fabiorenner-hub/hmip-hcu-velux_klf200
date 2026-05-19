@@ -1,4 +1,4 @@
-> 🇬🇧 English | [🇩🇪 Deutsch](README.de.md)
+> ðŸ‡¬ðŸ‡§ English | [ðŸ‡©ðŸ‡ª Deutsch](README.de.md)
 
 <p align="center">
   <img src="icon.svg" alt="hmip-velux-plugin icon" width="128" height="128"/>
@@ -6,7 +6,7 @@
 
 # hmip-velux-plugin
 
-📦 **[Download hmip-velux-plugin-1.1.1.tar.gz](https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200/releases/latest/download/hmip-velux-plugin-1.1.1.tar.gz)** — install via HCUweb → *Developer mode → Plugins → Install from file*.
+ðŸ“¦ **[Download hmip-velux-plugin-1.1.2.tar.gz](https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200/releases/latest/download/hmip-velux-plugin-1.1.2.tar.gz)** â€” install via HCUweb â†’ *Developer mode â†’ Plugins â†’ Install from file*.
 
 GitHub: <https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200>
 
@@ -25,7 +25,7 @@ the KLF-200, position notifications from the KLF-200 are forwarded as
 
 ## Support
 
-If this plugin is useful to you, please consider a small donation — it helps
+If this plugin is useful to you, please consider a small donation â€” it helps
 me keep the lights on while building more HCU plugins:
 [Donate via PayPal](https://www.paypal.com/donate/?hosted_button_id=JPZRATUUHRT5C).
 
@@ -36,9 +36,9 @@ The HCU accepts an **ARM64 container image** as a `.tar.gz`.
 1. Grab the latest release from
    [Releases](https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200/releases)
    and download the `hmip-velux-plugin-<version>.tar.gz` asset.
-2. In HCUweb open *Settings → Developer mode → Plugins → Install from file*
+2. In HCUweb open *Settings â†’ Developer mode â†’ Plugins â†’ Install from file*
    and upload the file.
-3. Open the plugin tile → *Configuration* and fill in:
+3. Open the plugin tile â†’ *Configuration* and fill in:
    - **KLF-200 hostname or IP** (e.g. `192.168.1.50`)
    - **KLF-200 WLAN password** (the password printed on the back of the
      gateway, **not** the web-config password)
@@ -69,7 +69,7 @@ chmod +x build.sh
 
 The output is `hmip-velux-plugin-<version>.tar.gz`. The build uses `buildx`
 with QEMU emulation, so you can produce ARM64 images on an x86 PC. Cross
-build under emulation typically takes 2–5 minutes.
+build under emulation typically takes 2â€“5 minutes.
 
 ## HCU requirements
 
@@ -113,7 +113,7 @@ in `device-mapper`.
 ## Known limitations
 
 - `velux-klf200-api` returns a broken timestamp in
-  `GW_NODE_STATE_POSITION_CHANGED_NTF` — irrelevant for us, we only need
+  `GW_NODE_STATE_POSITION_CHANGED_NTF` â€” irrelevant for us, we only need
   `NodeID` and `CurrentPositionPct`.
 - The KLF-200 closes idle TLS connections after ~15 min. The client polls
   every 5 min with `GW_GET_VERSION_REQ` to keep it alive.
