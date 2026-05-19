@@ -713,10 +713,16 @@ class VeluxClient extends EventEmitter {
             return;
         }
 
-        const level = snapToPendingTarget(entry, reported);
+        const wasPending = entry._pendingTarget !== undefined && entry._pendingDeadline > Date.now();
+        const inTolerance = wasPending && Math.abs(reported - entry._pendingTarget) <= SNAP_TOLERANCE;
+        const level = inTolerance ? entry._pendingTarget : reported;
         const snapped = level !== reported;
-        entry._pendingTarget = undefined;
-        entry._pendingDeadline = 0;
+        // Pending only cleared when the report is genuinely off-target;
+        // staying pending lets late notifications also snap.
+        if (wasPending && !inTolerance) {
+            entry._pendingTarget = undefined;
+            entry._pendingDeadline = 0;
+        }
         if (entry.level === level) return;
         entry.level = level;
         logger.info(
@@ -770,13 +776,23 @@ class VeluxClient extends EventEmitter {
             return;
         }
         // Snap to the user-requested target if we're inside the pending
-        // window and the actuator stopped within tolerance. Prevents the
-        // iOS app from showing perpetual movement when the motor lands
-        // a few thousandths short of the commanded position.
-        const level = snapToPendingTarget(entry, reported);
+        // window and the actuator stopped within tolerance. Velux motors
+        // settle a few thousandths off the commanded value, and iOS treats
+        // any mismatch between commanded and reported level as "still
+        // moving" — keeping the spinner up indefinitely.
+        const wasPending = entry._pendingTarget !== undefined && entry._pendingDeadline > Date.now();
+        const inTolerance = wasPending && Math.abs(reported - entry._pendingTarget) <= SNAP_TOLERANCE;
+        const level = inTolerance ? entry._pendingTarget : reported;
         const snapped = level !== reported;
-        entry._pendingTarget = undefined;
-        entry._pendingDeadline = 0;
+        // Only clear pending when the reading is genuinely outside
+        // tolerance (e.g., user/remote moved it elsewhere). Inside the
+        // tolerance window we keep pending alive so the immediate
+        // follow-up GW_NODE_STATE_POSITION_CHANGED_NTF — which carries the
+        // raw, unrounded actuator value — also snaps to the target.
+        if (wasPending && !inTolerance) {
+            entry._pendingTarget = undefined;
+            entry._pendingDeadline = 0;
+        }
         if (entry.level === level) {
             logger.info(`Velux node ${nodeId} run COMPLETED at level=${level} (unchanged)`);
             return;
