@@ -87,7 +87,7 @@ function toDevice(node) {
     return {
         deviceId: deviceIdFor(node.id),
         deviceType: 'WINDOW_COVERING',
-        firmwareVersion: '1.0.0',
+        firmwareVersion: '1.0.1',
         modelType: 'Velux io-homecontrol',
         friendlyName: node.name || `Velux ${node.id}`,
         features: buildFeatures(node),
