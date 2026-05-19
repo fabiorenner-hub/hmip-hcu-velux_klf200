@@ -1,6 +1,6 @@
 {
   "name": "hmip-velux-plugin",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Homematic IP HCU plugin that bridges Velux io-homecontrol devices (shutters, awnings, windows) via a KLF-200 gateway into the HMIP app.",
   "author": "Fabio Renner",
   "license": "Apache-2.0",
