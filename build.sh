@@ -5,7 +5,7 @@
 set -euo pipefail
 
 IMAGE="hmip-velux-plugin"
-TAG="1.0.1"
+TAG="1.0.2"
 PLATFORM="linux/arm64"
 OUT="${IMAGE}-${TAG}.tar"
 OUT_GZ="${OUT}.gz"

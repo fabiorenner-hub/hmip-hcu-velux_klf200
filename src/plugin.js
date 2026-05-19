@@ -302,14 +302,26 @@ class VeluxPlugin {
                         groupId: 'reliability',
                         order: 1,
                     },
-                    VELUX_DAILY_RESET_ENABLED: {
-                        dataType: 'BOOLEAN',
-                        friendlyName: t('Täglichen Reset aktivieren', 'Enable daily reset'),
+                    VELUX_DAILY_RESET_MODE: {
+                        dataType: 'ENUM',
+                        friendlyName: t('Tägliche Wartung', 'Daily maintenance'),
                         description: t(
-                            'Trennt einmal pro Tag aktiv die Verbindung zum KLF-200 und stellt sie neu her, um einen festgefahrenen Zustand vorzubeugen.',
-                            'Once a day, actively disconnect from the KLF-200 and reconnect to prevent a wedged state.',
+                            'Was passiert einmal pro Tag, um einen festgefahrenen KLF-200 zu vermeiden: Aus, weiche Reconnect oder echter Hardware-Reboot des KLF-200 (~60s nicht erreichbar).',
+                            'What happens once a day to prevent a wedged KLF-200: off, soft reconnect, or hardware reboot of the KLF-200 (~60s unreachable).',
                         ),
-                        currentValue: cfg.velux.dailyResetEnabled,
+                        possibleValues: {
+                            OFF: { friendlyName: t('Aus', 'Off') },
+                            RECONNECT: {
+                                friendlyName: t('Reconnect (weich)', 'Reconnect (soft)'),
+                            },
+                            REBOOT: {
+                                friendlyName: t(
+                                    'KLF-200 Reboot (Hardware)',
+                                    'KLF-200 reboot (hardware)',
+                                ),
+                            },
+                        },
+                        currentValue: cfg.velux.dailyResetMode,
                         required: false,
                         groupId: 'reliability',
                         order: 2,
@@ -351,7 +363,7 @@ class VeluxPlugin {
             const password = get('VELUX_PASSWORD');
             const nodes = get('VELUX_NODES');
             const keepalive = get('VELUX_KEEPALIVE_MINUTES');
-            const dailyResetEnabled = get('VELUX_DAILY_RESET_ENABLED');
+            const dailyResetMode = get('VELUX_DAILY_RESET_MODE');
             const dailyResetTime = get('VELUX_DAILY_RESET_TIME');
 
             if (host !== undefined) cfg.velux.host = String(host || '').trim();
@@ -372,10 +384,22 @@ class VeluxPlugin {
                     cfg.velux.keepaliveMinutes = Math.floor(n);
                 }
             }
-            if (dailyResetEnabled !== undefined && dailyResetEnabled !== null) {
-                cfg.velux.dailyResetEnabled =
-                    dailyResetEnabled === true ||
-                    String(dailyResetEnabled).toLowerCase() === 'true';
+            if (dailyResetMode !== undefined && dailyResetMode !== null && dailyResetMode !== '') {
+                const m = String(dailyResetMode).toUpperCase();
+                if (['OFF', 'RECONNECT', 'REBOOT'].includes(m)) {
+                    cfg.velux.dailyResetMode = m;
+                } else {
+                    this.hcu.send(
+                        'CONFIG_UPDATE_RESPONSE',
+                        {
+                            status: 'FAILED',
+                            message:
+                                'Tägliche Wartung muss OFF, RECONNECT oder REBOOT sein.',
+                        },
+                        env,
+                    );
+                    return;
+                }
             }
             if (dailyResetTime !== undefined && dailyResetTime !== null && dailyResetTime !== '') {
                 const value = String(dailyResetTime).trim();

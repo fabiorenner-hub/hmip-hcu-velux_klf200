@@ -2,7 +2,7 @@
 
 # hmip-velux-plugin
 
-📦 **[Download hmip-velux-plugin-1.0.1.tar.gz](https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200/releases/latest/download/hmip-velux-plugin-1.0.1.tar.gz)** — install via HCUweb → *Developer mode → Plugins → Install from file*.
+📦 **[Download hmip-velux-plugin-1.0.2.tar.gz](https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200/releases/latest/download/hmip-velux-plugin-1.0.2.tar.gz)** — install via HCUweb → *Developer mode → Plugins → Install from file*.
 
 Homematic IP HCU plugin that bridges Velux io-homecontrol devices (shutters,
 awnings, windows) into the HMIP app via a **KLF-200 gateway**.
