@@ -79,6 +79,15 @@ const REFUSED_ERROR_CODES = new Set([
 // don't fill up with the expected ECONNREFUSED while the gateway boots.
 const REBOOT_COOLDOWN_MS = 90 * 1000;
 
+// Velux motors stop a couple of thousandths short of (or past) the
+// commanded position. Reporting that tiny delta as a fresh shutterLevel
+// confuses the HMIP / iOS rendering: it sees "current value differs from
+// the just-commanded target" and keeps the in-motion spinner running for
+// minutes after the shutter has actually stopped. Within the pending
+// command window we therefore snap a reading to the target if it's close
+// enough — the user only ever sees the value they asked for.
+const SNAP_TOLERANCE = 0.015; // 1.5%
+
 // Actuator state codes from the KLF-200 API spec.
 const STATE_NONEXECUTING = 0;
 const STATE_ERROR = 1;
@@ -184,6 +193,25 @@ function msUntilNextLocalTime(hhmm, now = new Date()) {
         next.setDate(next.getDate() + 1);
     }
     return next.getTime() - now.getTime();
+}
+
+/**
+ * Within the pending-command window the actuator may report a position
+ * that is a few thousandths off from the value the user asked for, simply
+ * because Velux motors don't stop with sub-percent precision. Rendering
+ * that delta as a fresh shutterLevel confuses the HMIP / iOS UI, which
+ * then keeps the "moving" spinner up indefinitely. If the reported level
+ * is within SNAP_TOLERANCE of the pending target, return the target
+ * verbatim so downstream consumers see exactly the value they requested.
+ */
+function snapToPendingTarget(entry, level) {
+    if (!entry) return level;
+    if (entry._pendingTarget === undefined) return level;
+    if (!(entry._pendingDeadline > Date.now())) return level;
+    if (typeof level !== 'number' || Number.isNaN(level)) return level;
+    return Math.abs(level - entry._pendingTarget) <= SNAP_TOLERANCE
+        ? entry._pendingTarget
+        : level;
 }
 
 class VeluxClient extends EventEmitter {
@@ -677,19 +705,23 @@ class VeluxClient extends EventEmitter {
             return;
         }
 
-        const level = normaliseShutterLevel(pos);
-        if (level === undefined) {
+        const reported = normaliseShutterLevel(pos);
+        if (reported === undefined) {
             logger.info(
                 `Velux node ${id} NTF state=Done but not RELATIVE (valueType=${pos && pos.valueType}, rawValue=${pos && pos.rawValue})`,
             );
             return;
         }
 
+        const level = snapToPendingTarget(entry, reported);
+        const snapped = level !== reported;
         entry._pendingTarget = undefined;
         entry._pendingDeadline = 0;
         if (entry.level === level) return;
         entry.level = level;
-        logger.info(`Velux node ${id} position NTF state=Done level=${level}`);
+        logger.info(
+            `Velux node ${id} position NTF state=Done level=${level}${snapped ? ` (snapped from ${reported})` : ''}`,
+        );
         this.emit('positionChanged', entry);
     }
 
@@ -730,13 +762,19 @@ class VeluxClient extends EventEmitter {
             return;
         }
         // RUN_COMPLETED
-        const level = normaliseShutterLevel(data.parameterValue);
-        if (level === undefined) {
+        const reported = normaliseShutterLevel(data.parameterValue);
+        if (reported === undefined) {
             logger.info(
                 `Velux node ${nodeId} completed but parameterValue not RELATIVE (valueType=${data.parameterValue && data.parameterValue.valueType})`,
             );
             return;
         }
+        // Snap to the user-requested target if we're inside the pending
+        // window and the actuator stopped within tolerance. Prevents the
+        // iOS app from showing perpetual movement when the motor lands
+        // a few thousandths short of the commanded position.
+        const level = snapToPendingTarget(entry, reported);
+        const snapped = level !== reported;
         entry._pendingTarget = undefined;
         entry._pendingDeadline = 0;
         if (entry.level === level) {
@@ -744,7 +782,9 @@ class VeluxClient extends EventEmitter {
             return;
         }
         entry.level = level;
-        logger.info(`Velux node ${nodeId} run COMPLETED level=${level} (session=${data.sessionID})`);
+        logger.info(
+            `Velux node ${nodeId} run COMPLETED level=${level}${snapped ? ` (snapped from ${reported})` : ''} (session=${data.sessionID})`,
+        );
         this.emit('positionChanged', entry);
     }
 
@@ -786,19 +826,21 @@ class VeluxClient extends EventEmitter {
             return;
         }
 
-        const level = normaliseShutterLevel(data.currentPosition);
-        if (level === undefined) {
+        const reported = normaliseShutterLevel(data.currentPosition);
+        if (reported === undefined) {
             logger.debug(
                 `Velux node ${nodeId} status-request: position not RELATIVE (valueType=${data.currentPosition && data.currentPosition.valueType})`,
             );
             return;
         }
 
-        // Skip if this update matches our own pending command — the
-        // CommandRunStatus handler is authoritative in that window.
-        if (entry._pendingTarget !== undefined && entry._pendingDeadline > Date.now()) {
-            const delta = Math.abs(level - entry._pendingTarget);
-            if (delta < 0.02) {
+        // Inside the pending window, snap to the user-requested target so
+        // tiny actuator drift doesn't keep the iOS app showing motion.
+        // Outside the window, reports propagate as-is.
+        const wasPending = entry._pendingTarget !== undefined && entry._pendingDeadline > Date.now();
+        const level = snapToPendingTarget(entry, reported);
+        if (wasPending) {
+            if (level === entry._pendingTarget) {
                 entry._pendingTarget = undefined;
                 entry._pendingDeadline = 0;
             } else {
@@ -806,11 +848,12 @@ class VeluxClient extends EventEmitter {
                 return;
             }
         }
+        const snapped = level !== reported;
 
         if (entry.level === level) return;
         entry.level = level;
         logger.info(
-            `Velux node ${nodeId} external update level=${level} (live-poll, originator=${data.lastCommandOriginatorTyp || data.lastCommandOriginator})`,
+            `Velux node ${nodeId} external update level=${level}${snapped ? ` (snapped from ${reported})` : ''} (live-poll, originator=${data.lastCommandOriginatorTyp || data.lastCommandOriginator})`,
         );
         this.emit('positionChanged', entry);
     }
@@ -938,4 +981,4 @@ class VeluxClient extends EventEmitter {
 module.exports = { VeluxClient };
 
 // Exposed for unit tests; not part of the public API.
-module.exports._test = { normaliseShutterLevel, shutterLevelToRaw, formatConnectError, isRefusalError, msUntilNextLocalTime };
+module.exports._test = { normaliseShutterLevel, shutterLevelToRaw, formatConnectError, isRefusalError, msUntilNextLocalTime, snapToPendingTarget };
