@@ -6,3 +6,8 @@ dist/
 *.tar.gz
 *.zip
 data/
+
+# local working files
+.tmp-assets/
+.vscode/
+

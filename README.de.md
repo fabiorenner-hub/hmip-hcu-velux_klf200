@@ -1,8 +1,14 @@
 ﻿> [🇬🇧 English](README.md) | 🇩🇪 Deutsch
 
+<p align="center">
+  <img src="icon.svg" alt="hmip-velux-plugin Symbolbild" width="128" height="128"/>
+</p>
+
 # hmip-velux-plugin
 
-📦 **[hmip-velux-plugin-1.0.3.tar.gz herunterladen](https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200/releases/latest/download/hmip-velux-plugin-1.0.3.tar.gz)** — Installation in HCUweb über *Entwicklermodus → Plugins → Aus Datei installieren*.
+📦 **[hmip-velux-plugin-1.1.0.tar.gz herunterladen](https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200/releases/latest/download/hmip-velux-plugin-1.1.0.tar.gz)** — Installation in HCUweb über *Entwicklermodus → Plugins → Aus Datei installieren*.
+
+GitHub: <https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200>
 
 Homematic IP HCU Plugin, das Velux-Geräte (Rollläden, Markisen, Fenster) über
 ein **KLF-200 Gateway** in die Homematic IP App bringt.
@@ -15,6 +21,13 @@ Jeder vom KLF-200 gefundene Knoten wird der HCU als `WINDOW_COVERING`-Device mit
 `ShutterLevel`-Feature gemeldet. Befehle aus der App (`setShutterLevel`, `stop`)
 werden auf `GW_COMMAND_SEND_REQ` an das KLF-200 übersetzt, Positions-Notifications
 vom KLF-200 landen als `STATUS_EVENT` bei der HCU.
+
+## Spenden
+
+Wenn dir dieses Plugin hilft, freue ich mich über eine kleine Spende — sie hilft
+mir, weitere HCU-Plugins zu bauen und zu pflegen.
+
+<form action="https://www.paypal.com/donate" method="post" target="_top"><input type="hidden" name="hosted_button_id" value="JPZRATUUHRT5C" /><input type="image" src="https://www.paypalobjects.com/de_DE/DE/i/btn/btn_donate_SM.gif" border="0" name="submit" title="PayPal - The safer, easier way to pay online!" alt="Spenden mit dem PayPal-Button" /><img alt="" border="0" src="https://www.paypal.com/de_DE/i/scr/pixel.gif" width="1" height="1" /></form>
 
 ## Auf der HCU installieren
 
@@ -108,6 +121,10 @@ Slats (`slatsLevel`) und Wartungs-/Batteriestatus lassen sich analog über den
 - Bei aktiviertem `GW_HOUSE_STATUS_MONITOR` kann laut Velux-Issue-Tracker
   ein abruptes Trennen dazu führen, dass das KLF-200 nicht mehr erreichbar ist;
   Abhilfe ist dann nur ein Stromreset des Gateways.
+
+## Herausgeber
+
+Herausgegeben von **Fabio Renner**.
 
 ## Lizenz
 

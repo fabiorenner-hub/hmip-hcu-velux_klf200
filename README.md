@@ -1,8 +1,14 @@
 > 🇬🇧 English | [🇩🇪 Deutsch](README.de.md)
 
+<p align="center">
+  <img src="icon.svg" alt="hmip-velux-plugin icon" width="128" height="128"/>
+</p>
+
 # hmip-velux-plugin
 
-📦 **[Download hmip-velux-plugin-1.0.3.tar.gz](https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200/releases/latest/download/hmip-velux-plugin-1.0.3.tar.gz)** — install via HCUweb → *Developer mode → Plugins → Install from file*.
+📦 **[Download hmip-velux-plugin-1.1.0.tar.gz](https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200/releases/latest/download/hmip-velux-plugin-1.1.0.tar.gz)** — install via HCUweb → *Developer mode → Plugins → Install from file*.
+
+GitHub: <https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200>
 
 Homematic IP HCU plugin that bridges Velux io-homecontrol devices (shutters,
 awnings, windows) into the HMIP app via a **KLF-200 gateway**.
@@ -16,6 +22,13 @@ device with a `ShutterLevel` feature. Commands from the app
 (`setShutterLevel`, `stop`) are translated to `GW_COMMAND_SEND_REQ` against
 the KLF-200, position notifications from the KLF-200 are forwarded as
 `STATUS_EVENT` to the HCU.
+
+## Support this plugin
+
+If this plugin is useful to you, please consider a small donation — it helps
+me keep the lights on while building more HCU plugins.
+
+<form action="https://www.paypal.com/donate" method="post" target="_top"><input type="hidden" name="hosted_button_id" value="JPZRATUUHRT5C" /><input type="image" src="https://www.paypalobjects.com/de_DE/DE/i/btn/btn_donate_SM.gif" border="0" name="submit" title="PayPal - The safer, easier way to pay online!" alt="Spenden mit dem PayPal-Button" /><img alt="" border="0" src="https://www.paypal.com/de_DE/i/scr/pixel.gif" width="1" height="1" /></form>
 
 ## Install on your HCU
 
@@ -108,6 +121,10 @@ in `device-mapper`.
 - With `GW_HOUSE_STATUS_MONITOR` enabled the gateway can become unreachable
   after an abrupt disconnect (see Velux issue tracker). A power-cycle of the
   KLF-200 recovers it.
+
+## Author
+
+Issued by **Fabio Renner**.
 
 ## License
 
