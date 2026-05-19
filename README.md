@@ -6,7 +6,7 @@
 
 # hmip-velux-plugin
 
-📦 **[Download hmip-velux-plugin-1.1.0.tar.gz](https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200/releases/latest/download/hmip-velux-plugin-1.1.0.tar.gz)** — install via HCUweb → *Developer mode → Plugins → Install from file*.
+📦 **[Download hmip-velux-plugin-1.1.1.tar.gz](https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200/releases/latest/download/hmip-velux-plugin-1.1.1.tar.gz)** — install via HCUweb → *Developer mode → Plugins → Install from file*.
 
 GitHub: <https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200>
 
@@ -23,12 +23,11 @@ device with a `ShutterLevel` feature. Commands from the app
 the KLF-200, position notifications from the KLF-200 are forwarded as
 `STATUS_EVENT` to the HCU.
 
-## Support this plugin
+## Support
 
 If this plugin is useful to you, please consider a small donation — it helps
-me keep the lights on while building more HCU plugins.
-
-<form action="https://www.paypal.com/donate" method="post" target="_top"><input type="hidden" name="hosted_button_id" value="JPZRATUUHRT5C" /><input type="image" src="https://www.paypalobjects.com/de_DE/DE/i/btn/btn_donate_SM.gif" border="0" name="submit" title="PayPal - The safer, easier way to pay online!" alt="Spenden mit dem PayPal-Button" /><img alt="" border="0" src="https://www.paypal.com/de_DE/i/scr/pixel.gif" width="1" height="1" /></form>
+me keep the lights on while building more HCU plugins:
+[Donate via PayPal](https://www.paypal.com/donate/?hosted_button_id=JPZRATUUHRT5C).
 
 ## Install on your HCU
 

@@ -6,7 +6,7 @@
 
 # hmip-velux-plugin
 
-📦 **[hmip-velux-plugin-1.1.0.tar.gz herunterladen](https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200/releases/latest/download/hmip-velux-plugin-1.1.0.tar.gz)** — Installation in HCUweb über *Entwicklermodus → Plugins → Aus Datei installieren*.
+📦 **[hmip-velux-plugin-1.1.1.tar.gz herunterladen](https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200/releases/latest/download/hmip-velux-plugin-1.1.1.tar.gz)** — Installation in HCUweb über *Entwicklermodus → Plugins → Aus Datei installieren*.
 
 GitHub: <https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200>
 
@@ -24,10 +24,9 @@ vom KLF-200 landen als `STATUS_EVENT` bei der HCU.
 
 ## Spenden
 
-Wenn dir dieses Plugin hilft, freue ich mich über eine kleine Spende — sie hilft
-mir, weitere HCU-Plugins zu bauen und zu pflegen.
-
-<form action="https://www.paypal.com/donate" method="post" target="_top"><input type="hidden" name="hosted_button_id" value="JPZRATUUHRT5C" /><input type="image" src="https://www.paypalobjects.com/de_DE/DE/i/btn/btn_donate_SM.gif" border="0" name="submit" title="PayPal - The safer, easier way to pay online!" alt="Spenden mit dem PayPal-Button" /><img alt="" border="0" src="https://www.paypal.com/de_DE/i/scr/pixel.gif" width="1" height="1" /></form>
+Wenn dir dieses Plugin hilft, freue ich mich über eine kleine Spende — sie
+hält bei mir die Lichter an, während ich weitere HCU-Plugins baue:
+[Spenden via PayPal](https://www.paypal.com/donate/?hosted_button_id=JPZRATUUHRT5C).
 
 ## Auf der HCU installieren
 
