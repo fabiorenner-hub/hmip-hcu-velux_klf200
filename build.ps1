@@ -5,7 +5,7 @@
 $ErrorActionPreference = 'Stop'
 
 $Image = 'hmip-velux-plugin'
-$Tag = '1.0.2'
+$Tag = '1.0.3'
 $Platform = 'linux/arm64'
 $Out = "$Image-$Tag.tar"
 $OutGz = "$Out.gz"
