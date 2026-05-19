@@ -57,6 +57,23 @@ const RAW_UNKNOWN = 0xf7ff;
 const RAW_STOP = 0xd200;
 const MAX_KEEPALIVE_FAILURES = 2;
 
+// The KLF-200 occasionally enters a state where its API listener rejects
+// every new TCP connection with ECONNREFUSED, even though the device is
+// otherwise responsive. Hammering it every reconnectDelayMs (10 s by
+// default) only prolongs that state and floods the logs. After this many
+// consecutive ECONNREFUSED-style failures we back off to a longer pause
+// to give the gateway time to clean up its listener state.
+const REFUSED_BACKOFF_THRESHOLD = 6;
+const REFUSED_BACKOFF_MS = 60 * 1000;
+// Error codes that indicate the KLF is reachable but actively rejects /
+// drops the connection — exactly the failure mode the backoff targets.
+const REFUSED_ERROR_CODES = new Set([
+    'ECONNREFUSED',
+    'ECONNRESET',
+    'EHOSTUNREACH',
+    'ETIMEDOUT',
+]);
+
 // Actuator state codes from the KLF-200 API spec.
 const STATE_NONEXECUTING = 0;
 const STATE_ERROR = 1;
@@ -95,6 +112,75 @@ function shutterLevelToRaw(level) {
     return Math.round(clamped * RAW_MAX);
 }
 
+/**
+ * Render a connection error in a single, human-readable line.
+ *
+ * The upstream `velux-klf200-api` reports transport failures by
+ * concatenating the literal string `"tcp error"` with the underlying
+ * `Error` object via implicit `toString()`, producing messages like
+ * `"tcp errorError: connect ECONNREFUSED 192.168.10.105:51200"`. That's
+ * noisy and easy to misread. Normalise to either `<CODE> <addr>:<port>`
+ * when the original socket error is exposed, or to a cleaned-up message
+ * with the duplicate prefix removed.
+ */
+function formatConnectError(err) {
+    if (!err) return 'unknown error';
+
+    // Sometimes the library passes through the original socket error.
+    if (err.code && (err.address || err.host) && err.port) {
+        const host = err.address || err.host;
+        return `${err.code} ${host}:${err.port}`;
+    }
+
+    const raw = err.message || String(err);
+    // Strip the duplicated "tcp errorError:" / "tcp error Error:" prefix.
+    const cleaned = raw
+        .replace(/^tcp error\s*Error:\s*/i, '')
+        .replace(/^tcp error\s*/i, '');
+    // If the cleaned line still mentions ECONN*, condense to "<CODE> <host>:<port>".
+    const m = cleaned.match(/(ECONN\w+|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|ENOTFOUND)\b.*?(\d{1,3}(?:\.\d{1,3}){3}|\[?[0-9a-f:]+\]?|[\w.-]+):(\d+)/i);
+    if (m) return `${m[1].toUpperCase()} ${m[2]}:${m[3]}`;
+    return cleaned;
+}
+
+/**
+ * Decide whether a connect error indicates the KLF actively refused or
+ * dropped the socket (vs. a different problem like login/auth). Used to
+ * decide when to switch from the fast 10 s retry to a longer back-off.
+ */
+function isRefusalError(err) {
+    if (!err) return false;
+    if (err.code && REFUSED_ERROR_CODES.has(err.code)) return true;
+    const text = (err.message || String(err)).toUpperCase();
+    for (const code of REFUSED_ERROR_CODES) {
+        if (text.includes(code)) return true;
+    }
+    return false;
+}
+
+/**
+ * Compute the milliseconds from now until the next occurrence of the given
+ * local-time HH:MM. If the slot is already past today, return the time
+ * until that slot tomorrow. Returns NaN if the input is malformed.
+ *
+ * Caller should treat any non-finite or non-positive return as "don't
+ * schedule" rather than scheduling an immediate fire.
+ */
+function msUntilNextLocalTime(hhmm, now = new Date()) {
+    const m = /^\s*(\d{1,2}):(\d{2})\s*$/.exec(String(hhmm || ''));
+    if (!m) return NaN;
+    const h = Number(m[1]);
+    const min = Number(m[2]);
+    if (!Number.isFinite(h) || !Number.isFinite(min)) return NaN;
+    if (h < 0 || h > 23 || min < 0 || min > 59) return NaN;
+    const next = new Date(now);
+    next.setHours(h, min, 0, 0);
+    if (next.getTime() <= now.getTime()) {
+        next.setDate(next.getDate() + 1);
+    }
+    return next.getTime() - now.getTime();
+}
+
 class VeluxClient extends EventEmitter {
     constructor() {
         super();
@@ -104,10 +190,16 @@ class VeluxClient extends EventEmitter {
         this._positionPollTimer = null;
         this._reconnectTimer = null;
         this._readyFallbackTimer = null;
+        this._dailyResetTimer = null;
         this._stopping = false;
         this._attached = false;
         this._readyEmitted = false;
         this._keepaliveFailures = 0;
+        // Counts consecutive connect failures whose error code suggests the
+        // KLF actively refused or dropped the socket (ECONNREFUSED &
+        // friends). After REFUSED_BACKOFF_THRESHOLD we pause longer to let
+        // the gateway clean up its API listener state.
+        this._consecutiveRefusals = 0;
         // Track sessions we started via setShutterLevel/stopMovement so we
         // can match GW_COMMAND_RUN_STATUS_NTF back to a specific node.
         this._sessions = new Map(); // sessionID -> { nodeId, target, deadline }
@@ -141,6 +233,7 @@ class VeluxClient extends EventEmitter {
             await velux.connect(veluxCfg.host, {});
             await velux.login(veluxCfg.password);
             this.connected = true;
+            this._consecutiveRefusals = 0;
             logger.info('KLF-200 login succeeded.');
 
             this._attachListeners();
@@ -161,8 +254,13 @@ class VeluxClient extends EventEmitter {
                 }
             }, 10000);
         } catch (err) {
-            logger.error('KLF-200 connect failed:', err && err.message ? err.message : err);
+            logger.error(`KLF-200 connect failed: ${formatConnectError(err)}`);
             this.connected = false;
+            if (isRefusalError(err)) {
+                this._consecutiveRefusals += 1;
+            } else {
+                this._consecutiveRefusals = 0;
+            }
             this._scheduleReconnect();
         }
     }
@@ -203,24 +301,33 @@ class VeluxClient extends EventEmitter {
         this._clearTimers();
         this._keepaliveFailures = 0;
 
-        this._keepaliveTimer = setInterval(() => {
-            velux
-                .sendCommand({ api: API.GW_GET_VERSION_REQ })
-                .then(() => {
-                    this._keepaliveFailures = 0;
-                })
-                .catch((e) => {
-                    this._keepaliveFailures += 1;
-                    logger.warn(
-                        `KLF-200 keep-alive failed (${this._keepaliveFailures}/${MAX_KEEPALIVE_FAILURES + 1}):`,
-                        e && e.message ? e.message : e,
-                    );
-                    if (this._keepaliveFailures > MAX_KEEPALIVE_FAILURES) {
-                        logger.warn('KLF-200 considered dead, forcing reconnect.');
-                        this._forceReconnect();
-                    }
-                });
-        }, KEEPALIVE_INTERVAL_MS);
+        const keepaliveMin = Number.isFinite(veluxCfg.keepaliveMinutes)
+            ? veluxCfg.keepaliveMinutes
+            : KEEPALIVE_INTERVAL_MS / 60000;
+        if (keepaliveMin > 0) {
+            const intervalMs = Math.max(1, keepaliveMin) * 60 * 1000;
+            logger.debug(`KLF-200 keep-alive every ${keepaliveMin} min`);
+            this._keepaliveTimer = setInterval(() => {
+                velux
+                    .sendCommand({ api: API.GW_GET_VERSION_REQ })
+                    .then(() => {
+                        this._keepaliveFailures = 0;
+                    })
+                    .catch((e) => {
+                        this._keepaliveFailures += 1;
+                        logger.warn(
+                            `KLF-200 keep-alive failed (${this._keepaliveFailures}/${MAX_KEEPALIVE_FAILURES + 1}):`,
+                            e && e.message ? e.message : e,
+                        );
+                        if (this._keepaliveFailures > MAX_KEEPALIVE_FAILURES) {
+                            logger.warn('KLF-200 considered dead, forcing reconnect.');
+                            this._forceReconnect();
+                        }
+                    });
+            }, intervalMs);
+        } else {
+            logger.info('KLF-200 keep-alive disabled (keepaliveMinutes=0).');
+        }
 
         // Second timer: periodically ask each actuator for its *live*
         // position via io-homecontrol. GW_GET_ALL_NODES_INFORMATION_REQ only
@@ -247,6 +354,51 @@ class VeluxClient extends EventEmitter {
                 ),
             );
         }, POSITION_POLL_INTERVAL_MS);
+
+        this._scheduleDailyReset();
+    }
+
+    /**
+     * Schedule a daily forced reconnect at the configured local time
+     * (default 03:00). The KLF-200's TLS state machine occasionally wedges
+     * after long uptimes; tearing the session down once a day clears that
+     * out before users notice.
+     *
+     * Implementation note: we use one-shot `setTimeout` rather than
+     * `setInterval`. After firing, the next slot is computed fresh, which
+     * stays accurate across DST transitions and avoids drift after the
+     * machine sleeps/resumes.
+     */
+    _scheduleDailyReset() {
+        if (this._dailyResetTimer) {
+            clearTimeout(this._dailyResetTimer);
+            this._dailyResetTimer = null;
+        }
+        if (!veluxCfg.dailyResetEnabled) return;
+
+        const ms = msUntilNextLocalTime(veluxCfg.dailyResetTime);
+        if (!Number.isFinite(ms) || ms <= 0) {
+            logger.warn(
+                `Invalid dailyResetTime "${veluxCfg.dailyResetTime}", expected HH:MM (24h). Daily reset disabled.`,
+            );
+            return;
+        }
+        const hours = (ms / 3600000).toFixed(2);
+        logger.info(`KLF-200 daily reset scheduled for ${veluxCfg.dailyResetTime} (in ${hours} h).`);
+        this._dailyResetTimer = setTimeout(() => {
+            this._dailyResetTimer = null;
+            logger.info('KLF-200 daily reset: forcing reconnect.');
+            this._forceReconnect().catch((e) =>
+                logger.warn('Daily reset _forceReconnect threw:', e && e.message ? e.message : e),
+            );
+            // _forceReconnect → _scheduleReconnect → _connect → on success
+            // _schedulePoll → _scheduleDailyReset, so the next slot gets
+            // re-armed automatically. As a safety net (in case the
+            // reconnect keeps failing all day), arm the next slot here too.
+            if (!this._stopping) {
+                setTimeout(() => this._scheduleDailyReset(), 60 * 1000);
+            }
+        }, ms);
     }
 
     async _forceReconnect() {
@@ -265,10 +417,17 @@ class VeluxClient extends EventEmitter {
 
     _scheduleReconnect() {
         if (this._stopping || this._reconnectTimer) return;
+        const longBackoff = this._consecutiveRefusals >= REFUSED_BACKOFF_THRESHOLD;
+        const delay = longBackoff ? REFUSED_BACKOFF_MS : veluxCfg.reconnectDelayMs;
+        if (longBackoff) {
+            logger.warn(
+                `KLF-200 refused ${this._consecutiveRefusals} connects in a row — backing off ${Math.round(delay / 1000)}s before retrying.`,
+            );
+        }
         this._reconnectTimer = setTimeout(() => {
             this._reconnectTimer = null;
             this._connect();
-        }, veluxCfg.reconnectDelayMs);
+        }, delay);
     }
 
     _clearTimers() {
@@ -276,10 +435,12 @@ class VeluxClient extends EventEmitter {
         if (this._positionPollTimer) clearInterval(this._positionPollTimer);
         if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
         if (this._readyFallbackTimer) clearTimeout(this._readyFallbackTimer);
+        if (this._dailyResetTimer) clearTimeout(this._dailyResetTimer);
         this._keepaliveTimer = null;
         this._positionPollTimer = null;
         this._reconnectTimer = null;
         this._readyFallbackTimer = null;
+        this._dailyResetTimer = null;
     }
 
     _onClose() {
@@ -292,7 +453,7 @@ class VeluxClient extends EventEmitter {
     }
 
     _onTransportError(err) {
-        logger.warn('KLF-200 transport error:', err && err.message ? err.message : err);
+        logger.warn(`KLF-200 transport error: ${formatConnectError(err)}`);
     }
 
     async refreshNodes() {
@@ -653,4 +814,4 @@ class VeluxClient extends EventEmitter {
 module.exports = { VeluxClient };
 
 // Exposed for unit tests; not part of the public API.
-module.exports._test = { normaliseShutterLevel, shutterLevelToRaw };
+module.exports._test = { normaliseShutterLevel, shutterLevelToRaw, formatConnectError, isRefusalError, msUntilNextLocalTime };

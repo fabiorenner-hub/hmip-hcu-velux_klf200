@@ -68,6 +68,24 @@ const velux = {
         ? persisted.nodeFilter.filter((n) => Number.isFinite(n))
         : parseNodeFilter(process.env.VELUX_NODES),
     reconnectDelayMs: 10000,
+    // How often to send a cheap GW_GET_VERSION_REQ to keep the KLF TLS
+    // session warm. 0 disables the keep-alive entirely.
+    keepaliveMinutes: Number.isFinite(persisted.keepaliveMinutes)
+        ? persisted.keepaliveMinutes
+        : Number.isFinite(Number(process.env.VELUX_KEEPALIVE_MINUTES))
+        ? Number(process.env.VELUX_KEEPALIVE_MINUTES)
+        : 5,
+    // Whether to run a daily forced reconnect to clear lingering state in
+    // the KLF-200 (which loves to wedge after a few weeks of uptime).
+    dailyResetEnabled:
+        typeof persisted.dailyResetEnabled === 'boolean'
+            ? persisted.dailyResetEnabled
+            : String(process.env.VELUX_DAILY_RESET_ENABLED || '').toLowerCase() !== 'false',
+    // Local-time HH:MM at which the daily reset fires.
+    dailyResetTime:
+        (typeof persisted.dailyResetTime === 'string' && persisted.dailyResetTime) ||
+        process.env.VELUX_DAILY_RESET_TIME ||
+        '03:00',
 };
 
 function saveVelux() {
@@ -80,6 +98,9 @@ function saveVelux() {
                     host: velux.host,
                     password: velux.password,
                     nodeFilter: velux.nodeFilter,
+                    keepaliveMinutes: velux.keepaliveMinutes,
+                    dailyResetEnabled: velux.dailyResetEnabled,
+                    dailyResetTime: velux.dailyResetTime,
                 },
                 null,
                 2,
