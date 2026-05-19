@@ -214,6 +214,24 @@ function snapToPendingTarget(entry, level) {
         : level;
 }
 
+/**
+ * HMIP shutterDirection convention:
+ *   level 1.0 = fully closed = "darker"
+ *   level 0.0 = fully open   = "lighter"
+ * If the new target is higher than the previous level, the shutter is
+ * closing (DARKER); lower means opening (LIGHTER); equal means it's not
+ * actually moving — return STOPPED.
+ *
+ * Unknown previous level: assume DARKER as a sensible default (the user
+ * is requesting a position; the motor will move there). The follow-up
+ * RUN_COMPLETED will overwrite this with STOPPED anyway.
+ */
+function directionFor(previous, target) {
+    if (typeof previous !== 'number' || Number.isNaN(previous)) return 'DARKER';
+    if (Math.abs(target - previous) < 1e-9) return 'STOPPED';
+    return target > previous ? 'DARKER' : 'LIGHTER';
+}
+
 class VeluxClient extends EventEmitter {
     constructor() {
         super();
@@ -670,6 +688,7 @@ class VeluxClient extends EventEmitter {
         existing._pendingDeadline = 0;
         if (existing.level === level) return;
         existing.level = level;
+        existing.lastDirection = 'STOPPED';
         logger.info(`Velux node ${id} external update level=${level} (poll, state=Done)`);
         this.emit('positionChanged', existing);
     }
@@ -723,7 +742,19 @@ class VeluxClient extends EventEmitter {
             entry._pendingTarget = undefined;
             entry._pendingDeadline = 0;
         }
-        if (entry.level === level) return;
+        // STATE_DONE is the explicit "motor stopped" signal from the
+        // gateway. Even when the level is unchanged we want to emit a
+        // STATUS_EVENT carrying shutterDirection=STOPPED so the iOS app
+        // knows the movement finished and can clear its motion spinner.
+        const wasMoving = entry.lastDirection && entry.lastDirection !== 'STOPPED';
+        entry.lastDirection = 'STOPPED';
+        if (entry.level === level) {
+            if (wasMoving) {
+                logger.info(`Velux node ${id} position NTF state=Done level=${level} (stop notification)`);
+                this.emit('positionChanged', entry);
+            }
+            return;
+        }
         entry.level = level;
         logger.info(
             `Velux node ${id} position NTF state=Done level=${level}${snapped ? ` (snapped from ${reported})` : ''}`,
@@ -793,8 +824,21 @@ class VeluxClient extends EventEmitter {
             entry._pendingTarget = undefined;
             entry._pendingDeadline = 0;
         }
+        // RUN_COMPLETED is the per-command "movement finished" signal.
+        // Always set STOPPED and emit a STATUS_EVENT — even when the
+        // level is unchanged from the optimistic update — so the HMIP
+        // app gets explicit confirmation the motor stopped.
+        const wasMoving = entry.lastDirection && entry.lastDirection !== 'STOPPED';
+        entry.lastDirection = 'STOPPED';
         if (entry.level === level) {
-            logger.info(`Velux node ${nodeId} run COMPLETED at level=${level} (unchanged)`);
+            if (wasMoving) {
+                logger.info(
+                    `Velux node ${nodeId} run COMPLETED at level=${level} (stop notification, session=${data.sessionID})`,
+                );
+                this.emit('positionChanged', entry);
+            } else {
+                logger.info(`Velux node ${nodeId} run COMPLETED at level=${level} (unchanged)`);
+            }
             return;
         }
         entry.level = level;
@@ -866,7 +910,21 @@ class VeluxClient extends EventEmitter {
         }
         const snapped = level !== reported;
 
-        if (entry.level === level) return;
+        // The live poll only ever runs when the motor isn't reporting
+        // RUN_ACTIVE (we returned above), so any update we still emit
+        // here represents a settled position. Mark direction as stopped
+        // and ensure a final STATUS_EVENT goes out if we were moving.
+        const wasMoving = entry.lastDirection && entry.lastDirection !== 'STOPPED';
+        entry.lastDirection = 'STOPPED';
+        if (entry.level === level) {
+            if (wasMoving) {
+                logger.info(
+                    `Velux node ${nodeId} live-poll level=${level} (stop notification, originator=${data.lastCommandOriginatorTyp || data.lastCommandOriginator})`,
+                );
+                this.emit('positionChanged', entry);
+            }
+            return;
+        }
         entry.level = level;
         logger.info(
             `Velux node ${nodeId} external update level=${level}${snapped ? ` (snapped from ${reported})` : ''} (live-poll, originator=${data.lastCommandOriginatorTyp || data.lastCommandOriginator})`,
@@ -920,9 +978,11 @@ class VeluxClient extends EventEmitter {
             // Optimistic update so the HMIP UI reflects the target immediately.
             const entry = this.nodes.get(nodeId);
             if (entry) {
+                const previous = entry.level;
                 entry.level = clamped;
                 entry._pendingTarget = clamped;
                 entry._pendingDeadline = Date.now() + PENDING_WINDOW_MS;
+                entry.lastDirection = directionFor(previous, clamped);
                 this.emit('positionChanged', entry);
             }
             // Trigger a live poll so the UI converges to the real state.
@@ -944,9 +1004,11 @@ class VeluxClient extends EventEmitter {
         // Optimistic update so the HMIP UI reflects the target immediately.
         const entry = this.nodes.get(nodeId);
         if (entry) {
+            const previous = entry.level;
             entry.level = clamped;
             entry._pendingTarget = clamped;
             entry._pendingDeadline = Date.now() + PENDING_WINDOW_MS;
+            entry.lastDirection = directionFor(previous, clamped);
             this.emit('positionChanged', entry);
         }
 
@@ -983,6 +1045,16 @@ class VeluxClient extends EventEmitter {
             priorityLevelLock: false,
             lockTime: 0,
         });
+        // Best-effort optimistic update: emit a STOPPED so the iOS app
+        // clears its motion spinner immediately. The follow-up
+        // RUN_STATUS / live-poll will reconcile the actual position.
+        const entry = this.nodes.get(nodeId);
+        if (entry) {
+            entry.lastDirection = 'STOPPED';
+            entry._pendingTarget = undefined;
+            entry._pendingDeadline = 0;
+            this.emit('positionChanged', entry);
+        }
     }
 
     listNodes() {
@@ -997,4 +1069,4 @@ class VeluxClient extends EventEmitter {
 module.exports = { VeluxClient };
 
 // Exposed for unit tests; not part of the public API.
-module.exports._test = { normaliseShutterLevel, shutterLevelToRaw, formatConnectError, isRefusalError, msUntilNextLocalTime, snapToPendingTarget };
+module.exports._test = { normaliseShutterLevel, shutterLevelToRaw, formatConnectError, isRefusalError, msUntilNextLocalTime, snapToPendingTarget, directionFor };
