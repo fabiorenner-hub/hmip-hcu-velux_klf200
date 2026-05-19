@@ -6,7 +6,7 @@
 
 # hmip-velux-plugin
 
-📦 **[hmip-velux-plugin-1.1.3.tar.gz herunterladen](https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200/releases/latest/download/hmip-velux-plugin-1.1.3.tar.gz)** — Installation in HCUweb über *Entwicklermodus → Plugins → Aus Datei installieren*.
+📦 **[hmip-velux-plugin-1.1.2.tar.gz herunterladen](https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200/releases/latest/download/hmip-velux-plugin-1.1.2.tar.gz)** — Installation in HCUweb über *Entwicklermodus → Plugins → Aus Datei installieren*.
 
 GitHub: <https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200>
 
@@ -78,6 +78,12 @@ Heraus kommt `hmip-velux-plugin-<version>.tar.gz`.
 ## Herausgeber
 
 Herausgegeben von **Fabio Renner**.
+
+### Verwendete Drittanbieter
+
+- [`velux-klf200-api`](https://github.com/PLCHome/velux-klf200-api) von PLCHome — Protokoll-Implementierung für die KLF-200-API (MIT).
+- Die KLF-200-Hardware und io-homecontrol sind Produkte der VELUX A/S; dieses Plugin ist mit VELUX nicht verbunden und wird nicht von VELUX unterstützt.
+- Gebaut gegen die [Homematic IP Connect API 1.0.1](https://github.com/homematicip/connect-api) von eQ-3.
 
 ## Lizenz
 

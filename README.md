@@ -6,7 +6,7 @@
 
 # hmip-velux-plugin
 
-📦 **[Download hmip-velux-plugin-1.1.3.tar.gz](https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200/releases/latest/download/hmip-velux-plugin-1.1.3.tar.gz)** — install via HCUweb → *Developer mode → Plugins → Install from file*.
+📦 **[Download hmip-velux-plugin-1.1.2.tar.gz](https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200/releases/latest/download/hmip-velux-plugin-1.1.2.tar.gz)** — install via HCUweb → *Developer mode → Plugins → Install from file*.
 
 GitHub: <https://github.com/fabiorenner-hub/hmip-hcu-velux_klf200>
 
@@ -80,6 +80,12 @@ with QEMU emulation, so you can produce ARM64 images on an x86 PC.
 ## Author
 
 Issued by **Fabio Renner**.
+
+### Third-party components
+
+- [`velux-klf200-api`](https://github.com/PLCHome/velux-klf200-api) by PLCHome — protocol implementation for the KLF-200 API (MIT).
+- The KLF-200 hardware and io-homecontrol are products of VELUX A/S; this plugin is not affiliated with or endorsed by VELUX.
+- Built against the [Homematic IP Connect API 1.0.1](https://github.com/homematicip/connect-api) by eQ-3.
 
 ## License
 
