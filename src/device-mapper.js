@@ -74,12 +74,14 @@ function buildFeatures(node) {
     const features = [
         { type: 'shutterLevel', shutterLevel },
     ];
-    if (node.lastDirection) {
-        features.push({
-            type: 'shutterDirection',
-            shutterDirection: node.lastDirection, // DARKER | LIGHTER
-        });
-    }
+    // Always emit shutterDirection. STOPPED is the explicit "movement
+    // finished" signal the HMIP iOS app uses to clear its in-motion
+    // spinner; without it, the app keeps waiting for confirmation even
+    // when the level itself is correct.
+    features.push({
+        type: 'shutterDirection',
+        shutterDirection: node.lastDirection || 'STOPPED', // DARKER | LIGHTER | STOPPED
+    });
     return features;
 }
 
@@ -87,7 +89,7 @@ function toDevice(node) {
     return {
         deviceId: deviceIdFor(node.id),
         deviceType: 'WINDOW_COVERING',
-        firmwareVersion: '1.1.4',
+        firmwareVersion: '1.1.5',
         modelType: 'Velux io-homecontrol',
         friendlyName: node.name || `Velux ${node.id}`,
         features: buildFeatures(node),
