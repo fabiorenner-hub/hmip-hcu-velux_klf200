@@ -75,13 +75,29 @@ const velux = {
         : Number.isFinite(Number(process.env.VELUX_KEEPALIVE_MINUTES))
         ? Number(process.env.VELUX_KEEPALIVE_MINUTES)
         : 5,
-    // Whether to run a daily forced reconnect to clear lingering state in
-    // the KLF-200 (which loves to wedge after a few weeks of uptime).
-    dailyResetEnabled:
-        typeof persisted.dailyResetEnabled === 'boolean'
-            ? persisted.dailyResetEnabled
-            : String(process.env.VELUX_DAILY_RESET_ENABLED || '').toLowerCase() !== 'false',
-    // Local-time HH:MM at which the daily reset fires.
+    // Daily KLF-200 maintenance:
+    //   'OFF'       — do nothing
+    //   'RECONNECT' — drop the TLS session and reconnect (cheap, ~5s)
+    //   'REBOOT'    — send GW_REBOOT_REQ; the gateway power-cycles, ~60s
+    //                 of unreachability before the next connect succeeds.
+    // Migrate the previous boolean dailyResetEnabled into the new field
+    // so existing installs keep their behaviour.
+    dailyResetMode: (() => {
+        if (typeof persisted.dailyResetMode === 'string') {
+            const m = String(persisted.dailyResetMode).toUpperCase();
+            if (['OFF', 'RECONNECT', 'REBOOT'].includes(m)) return m;
+        }
+        if (typeof persisted.dailyResetEnabled === 'boolean') {
+            return persisted.dailyResetEnabled ? 'RECONNECT' : 'OFF';
+        }
+        const env = String(process.env.VELUX_DAILY_RESET_MODE || '').toUpperCase();
+        if (['OFF', 'RECONNECT', 'REBOOT'].includes(env)) return env;
+        if (String(process.env.VELUX_DAILY_RESET_ENABLED || '').toLowerCase() === 'false') {
+            return 'OFF';
+        }
+        return 'RECONNECT';
+    })(),
+    // Local-time HH:MM at which the daily maintenance fires.
     dailyResetTime:
         (typeof persisted.dailyResetTime === 'string' && persisted.dailyResetTime) ||
         process.env.VELUX_DAILY_RESET_TIME ||
@@ -99,7 +115,7 @@ function saveVelux() {
                     password: velux.password,
                     nodeFilter: velux.nodeFilter,
                     keepaliveMinutes: velux.keepaliveMinutes,
-                    dailyResetEnabled: velux.dailyResetEnabled,
+                    dailyResetMode: velux.dailyResetMode,
                     dailyResetTime: velux.dailyResetTime,
                 },
                 null,

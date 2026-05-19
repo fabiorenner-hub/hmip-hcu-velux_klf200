@@ -74,6 +74,11 @@ const REFUSED_ERROR_CODES = new Set([
     'ETIMEDOUT',
 ]);
 
+// After issuing GW_REBOOT_REQ the KLF-200 takes roughly 30–60 s to come
+// back online. Skip reconnect attempts during this window so the logs
+// don't fill up with the expected ECONNREFUSED while the gateway boots.
+const REBOOT_COOLDOWN_MS = 90 * 1000;
+
 // Actuator state codes from the KLF-200 API spec.
 const STATE_NONEXECUTING = 0;
 const STATE_ERROR = 1;
@@ -200,6 +205,11 @@ class VeluxClient extends EventEmitter {
         // friends). After REFUSED_BACKOFF_THRESHOLD we pause longer to let
         // the gateway clean up its API listener state.
         this._consecutiveRefusals = 0;
+        // Set to a Date.now() + REBOOT_COOLDOWN_MS while the KLF is
+        // believed to be rebooting; reconnect attempts during this window
+        // are silently deferred to the cooldown instead of issued
+        // immediately.
+        this._rebootCooldownUntil = 0;
         // Track sessions we started via setShutterLevel/stopMovement so we
         // can match GW_COMMAND_RUN_STATUS_NTF back to a specific node.
         this._sessions = new Map(); // sessionID -> { nodeId, target, deadline }
@@ -234,6 +244,7 @@ class VeluxClient extends EventEmitter {
             await velux.login(veluxCfg.password);
             this.connected = true;
             this._consecutiveRefusals = 0;
+            this._rebootCooldownUntil = 0;
             logger.info('KLF-200 login succeeded.');
 
             this._attachListeners();
@@ -359,10 +370,12 @@ class VeluxClient extends EventEmitter {
     }
 
     /**
-     * Schedule a daily forced reconnect at the configured local time
-     * (default 03:00). The KLF-200's TLS state machine occasionally wedges
-     * after long uptimes; tearing the session down once a day clears that
-     * out before users notice.
+     * Schedule a daily maintenance action at the configured local time
+     * (default 03:00). Mode determines what happens:
+     *   OFF       — never fires
+     *   RECONNECT — drop TLS session and reconnect (cheap, ~5s)
+     *   REBOOT    — issue GW_REBOOT_REQ; the KLF power-cycles and is
+     *               unreachable for ~30–60s before coming back.
      *
      * Implementation note: we use one-shot `setTimeout` rather than
      * `setInterval`. After firing, the next slot is computed fresh, which
@@ -374,31 +387,81 @@ class VeluxClient extends EventEmitter {
             clearTimeout(this._dailyResetTimer);
             this._dailyResetTimer = null;
         }
-        if (!veluxCfg.dailyResetEnabled) return;
+        const mode = String(veluxCfg.dailyResetMode || 'OFF').toUpperCase();
+        if (mode === 'OFF') return;
 
         const ms = msUntilNextLocalTime(veluxCfg.dailyResetTime);
         if (!Number.isFinite(ms) || ms <= 0) {
             logger.warn(
-                `Invalid dailyResetTime "${veluxCfg.dailyResetTime}", expected HH:MM (24h). Daily reset disabled.`,
+                `Invalid dailyResetTime "${veluxCfg.dailyResetTime}", expected HH:MM (24h). Daily maintenance disabled.`,
             );
             return;
         }
         const hours = (ms / 3600000).toFixed(2);
-        logger.info(`KLF-200 daily reset scheduled for ${veluxCfg.dailyResetTime} (in ${hours} h).`);
+        logger.info(
+            `KLF-200 daily ${mode.toLowerCase()} scheduled for ${veluxCfg.dailyResetTime} (in ${hours} h).`,
+        );
         this._dailyResetTimer = setTimeout(() => {
             this._dailyResetTimer = null;
-            logger.info('KLF-200 daily reset: forcing reconnect.');
-            this._forceReconnect().catch((e) =>
-                logger.warn('Daily reset _forceReconnect threw:', e && e.message ? e.message : e),
-            );
-            // _forceReconnect → _scheduleReconnect → _connect → on success
-            // _schedulePoll → _scheduleDailyReset, so the next slot gets
-            // re-armed automatically. As a safety net (in case the
-            // reconnect keeps failing all day), arm the next slot here too.
+            if (mode === 'REBOOT') {
+                logger.info('KLF-200 daily maintenance: issuing hardware reboot.');
+                this.rebootGateway().catch((e) =>
+                    logger.warn(
+                        'Daily reboot failed:',
+                        e && e.message ? e.message : e,
+                    ),
+                );
+            } else {
+                logger.info('KLF-200 daily maintenance: forcing reconnect.');
+                this._forceReconnect().catch((e) =>
+                    logger.warn(
+                        'Daily reset _forceReconnect threw:',
+                        e && e.message ? e.message : e,
+                    ),
+                );
+            }
+            // _forceReconnect / rebootGateway eventually trigger
+            // _connect → _schedulePoll → _scheduleDailyReset, so the next
+            // slot gets re-armed automatically. As a safety net (in case
+            // the reconnect keeps failing all day), arm the next slot here
+            // too.
             if (!this._stopping) {
                 setTimeout(() => this._scheduleDailyReset(), 60 * 1000);
             }
         }, ms);
+    }
+
+    /**
+     * Send GW_REBOOT_REQ to power-cycle the KLF-200, then enter a cooldown
+     * window during which reconnect attempts are deferred. The gateway
+     * typically needs 30–60 s to come back; the conservative 90 s cooldown
+     * keeps the log free of expected ECONNREFUSED noise.
+     */
+    async rebootGateway() {
+        if (!this.connected) {
+            logger.warn('Cannot reboot KLF-200: not currently connected.');
+            return;
+        }
+        try {
+            await velux.sendCommand({ api: API.GW_REBOOT_REQ });
+            logger.info('KLF-200 GW_REBOOT_REQ acknowledged; gateway is rebooting.');
+        } catch (err) {
+            logger.warn(
+                'GW_REBOOT_REQ failed:',
+                err && err.message ? err.message : err,
+            );
+        }
+        this._rebootCooldownUntil = Date.now() + REBOOT_COOLDOWN_MS;
+        this._clearTimers();
+        this.connected = false;
+        this._readyEmitted = false;
+        this._sessions.clear();
+        try {
+            await velux.end();
+        } catch (_) {
+            /* ignore */
+        }
+        this._scheduleReconnect();
     }
 
     async _forceReconnect() {
@@ -418,8 +481,14 @@ class VeluxClient extends EventEmitter {
     _scheduleReconnect() {
         if (this._stopping || this._reconnectTimer) return;
         const longBackoff = this._consecutiveRefusals >= REFUSED_BACKOFF_THRESHOLD;
-        const delay = longBackoff ? REFUSED_BACKOFF_MS : veluxCfg.reconnectDelayMs;
-        if (longBackoff) {
+        let delay = longBackoff ? REFUSED_BACKOFF_MS : veluxCfg.reconnectDelayMs;
+        const cooldownRemaining = this._rebootCooldownUntil - Date.now();
+        if (cooldownRemaining > delay) {
+            delay = cooldownRemaining;
+            logger.info(
+                `KLF-200 in reboot cooldown — next connect in ${Math.round(delay / 1000)}s.`,
+            );
+        } else if (longBackoff) {
             logger.warn(
                 `KLF-200 refused ${this._consecutiveRefusals} connects in a row — backing off ${Math.round(delay / 1000)}s before retrying.`,
             );
