@@ -237,6 +237,14 @@ class VeluxPlugin {
                         ),
                         order: 2,
                     },
+                    reliability: {
+                        friendlyName: t('Verbindungsstabilität', 'Connection reliability'),
+                        description: t(
+                            'Keep-Alive- und Tagesreset-Optionen, die helfen, einen festgefahrenen KLF-200 zu vermeiden.',
+                            'Keep-alive and daily-reset options that help avoid a wedged KLF-200.',
+                        ),
+                        order: 3,
+                    },
                 },
                 properties: {
                     VELUX_HOST: {
@@ -280,6 +288,46 @@ class VeluxPlugin {
                         groupId: 'filter',
                         order: 1,
                     },
+                    VELUX_KEEPALIVE_MINUTES: {
+                        dataType: 'INTEGER',
+                        friendlyName: t('Keep-Alive Intervall (Minuten)', 'Keep-alive interval (minutes)'),
+                        description: t(
+                            'Wie oft das Plugin einen leichten Ping zum KLF-200 sendet, um die TLS-Sitzung offen zu halten. 0 deaktiviert den Ping.',
+                            'How often the plugin sends a lightweight ping to the KLF-200 to keep the TLS session alive. 0 disables it.',
+                        ),
+                        minimumValue: 0,
+                        maximumValue: 60,
+                        currentValue: cfg.velux.keepaliveMinutes,
+                        required: false,
+                        groupId: 'reliability',
+                        order: 1,
+                    },
+                    VELUX_DAILY_RESET_ENABLED: {
+                        dataType: 'BOOLEAN',
+                        friendlyName: t('Täglichen Reset aktivieren', 'Enable daily reset'),
+                        description: t(
+                            'Trennt einmal pro Tag aktiv die Verbindung zum KLF-200 und stellt sie neu her, um einen festgefahrenen Zustand vorzubeugen.',
+                            'Once a day, actively disconnect from the KLF-200 and reconnect to prevent a wedged state.',
+                        ),
+                        currentValue: cfg.velux.dailyResetEnabled,
+                        required: false,
+                        groupId: 'reliability',
+                        order: 2,
+                    },
+                    VELUX_DAILY_RESET_TIME: {
+                        dataType: 'STRING',
+                        friendlyName: t('Reset-Zeit (HH:MM)', 'Reset time (HH:MM)'),
+                        description: t(
+                            'Lokale Uhrzeit für den täglichen Reset im Format HH:MM (24h). Standard 03:00.',
+                            'Local time for the daily reset in HH:MM (24h) format. Default 03:00.',
+                        ),
+                        minimumLength: 4,
+                        maximumLength: 5,
+                        currentValue: cfg.velux.dailyResetTime,
+                        required: false,
+                        groupId: 'reliability',
+                        order: 3,
+                    },
                 },
             },
             env,
@@ -302,6 +350,9 @@ class VeluxPlugin {
             const host = get('VELUX_HOST');
             const password = get('VELUX_PASSWORD');
             const nodes = get('VELUX_NODES');
+            const keepalive = get('VELUX_KEEPALIVE_MINUTES');
+            const dailyResetEnabled = get('VELUX_DAILY_RESET_ENABLED');
+            const dailyResetTime = get('VELUX_DAILY_RESET_TIME');
 
             if (host !== undefined) cfg.velux.host = String(host || '').trim();
             if (password !== undefined && password !== null && password !== '') {
@@ -314,6 +365,37 @@ class VeluxPlugin {
                     .filter(Boolean)
                     .map(Number)
                     .filter((n) => Number.isFinite(n));
+            }
+            if (keepalive !== undefined && keepalive !== null && keepalive !== '') {
+                const n = Number(keepalive);
+                if (Number.isFinite(n) && n >= 0 && n <= 60) {
+                    cfg.velux.keepaliveMinutes = Math.floor(n);
+                }
+            }
+            if (dailyResetEnabled !== undefined && dailyResetEnabled !== null) {
+                cfg.velux.dailyResetEnabled =
+                    dailyResetEnabled === true ||
+                    String(dailyResetEnabled).toLowerCase() === 'true';
+            }
+            if (dailyResetTime !== undefined && dailyResetTime !== null && dailyResetTime !== '') {
+                const value = String(dailyResetTime).trim();
+                if (/^\d{1,2}:\d{2}$/.test(value)) {
+                    const [h, m] = value.split(':').map(Number);
+                    if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+                        cfg.velux.dailyResetTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                    }
+                } else {
+                    this.hcu.send(
+                        'CONFIG_UPDATE_RESPONSE',
+                        {
+                            status: 'FAILED',
+                            message:
+                                'Reset-Zeit muss im Format HH:MM (24h) angegeben werden, z. B. 03:00.',
+                        },
+                        env,
+                    );
+                    return;
+                }
             }
 
             if (!cfg.velux.host || !cfg.velux.password) {
